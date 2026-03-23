@@ -1,0 +1,60 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'com.mdinator'
+version = project.findProperty('appVersion') ?: '0.0.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // CLI parsing
+    implementation 'info.picocli:picocli:4.7.5'
+    annotationProcessor 'info.picocli:picocli:4.7.5'
+
+    // Glob / path matching
+    implementation 'com.google.guava:guava:33.0.0-jre'
+
+    // Logging
+    implementation 'org.slf4j:slf4j-api:2.0.12'
+    implementation 'ch.qos.logback:logback-classic:1.5.3'
+
+    // Testing
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testImplementation 'org.assertj:assertj-core:3.25.3'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+application {
+    mainClass = 'com.mdinator.cli.MdinatorCli'
+}
+
+jar {
+    manifest {
+        attributes 'Main-Class': 'com.mdinator.cli.MdinatorCli',
+                   'Implementation-Version': project.version
+    }
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    archiveBaseName = 'md-inator'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+// Convenience task: run with --args
+tasks.named('run') {
+    standardInput = System.in
+}

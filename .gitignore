@@ -1,0 +1,22 @@
+# Build outputs
+build/
+out/
+*.jar
+
+# Gradle
+.gradle/
+gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated context files
+*-context.md

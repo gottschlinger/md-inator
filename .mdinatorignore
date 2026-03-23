@@ -1,0 +1,7 @@
+# .mdinatorignore
+
+# ignore any leftover log files
+**/*.log
+
+# ignore backup files
+**/*.bak
