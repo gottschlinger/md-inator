@@ -65,15 +65,20 @@ public final class GitHubApiClient {
      * We request {@code application/vnd.github.raw} to get the file content
      * directly without base64 wrapping.
      */
-    public String getFileContent(String owner, String repo, String path, String branch)
-            throws IOException {
-        String url = String.format("%s/repos/%s/%s/contents/%s?ref=%s",
-                API_BASE, owner, repo,
-                path.replace(" ", "%20"),
-                branch);
-        return getRaw(url);
-    }
+//    public String getFileContent(String owner, String repo, String path, String branch)
+//            throws IOException {
+//        String url = String.format("%s/repos/%s/%s/contents/%s?ref=%s",
+//                API_BASE, owner, repo,
+//                path.replace(" ", "%20"),
+//                branch);
+//        return getRaw(url);
+//    }
 
+    public String getBlob(String owner, String repo, String sha) throws IOException {
+        String url = String.format("%s/repos/%s/%s/git/blobs/%s",
+                API_BASE, owner, repo, sha);
+        return getRaw(url); // already uses Accept: application/vnd.github.raw
+    }
     // -------------------------------------------------------------------------
 
     private String get(String url) throws IOException {

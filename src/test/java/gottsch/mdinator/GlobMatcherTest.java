@@ -117,4 +117,88 @@ class GlobMatcherTest {
         assertThat(m.matches(winPath(".github/workflows/ci.yml"))).isTrue();
         assertThat(m.matches(winPath("README.md"))).isFalse();
     }
+
+    // ── shouldDescend edge cases ──────────────────────────────────────────────
+
+    @Test
+    void shouldNotDescendIntoDirectlyExcludedDir() {
+        GlobMatcher m = new GlobMatcher(List.of("**/*.java"), List.of("foo/**"));
+        assertThat(m.shouldDescend(Path.of("foo"))).isFalse();
+    }
+
+    @Test
+    void shouldNotDescendIntoNestedExcludedDir() {
+        GlobMatcher m = new GlobMatcher(List.of("**/*.java"), List.of("foo/**"));
+        assertThat(m.shouldDescend(Path.of("foo/bar"))).isFalse();
+    }
+
+    @Test
+    void shouldDescendIntoSiblingOfExcludedDir() {
+        GlobMatcher m = new GlobMatcher(List.of("**/*.java"), List.of("foo/**"));
+        assertThat(m.shouldDescend(Path.of("bar"))).isTrue();
+    }
+
+    @Test
+    void doubleStarPatternExcludesNestedDir() {
+        GlobMatcher m = new GlobMatcher(List.of("**/*.java"), List.of("**/foo/**"));
+        assertThat(m.shouldDescend(Path.of("src/main/foo"))).isFalse();
+        assertThat(m.shouldDescend(Path.of("foo"))).isFalse();
+    }
+
+    @Test
+    void doubleStarPatternDoesNotExcludeSiblings() {
+        GlobMatcher m = new GlobMatcher(List.of("**/*.java"), List.of("**/foo/**"));
+        assertThat(m.shouldDescend(Path.of("src/main/bar"))).isTrue();
+        assertThat(m.shouldDescend(Path.of("bar"))).isTrue();
+    }
+
+    @Test
+    void excludedDirFilesAreAlsoNotMatched() {
+        // Consistency check — if shouldDescend returns false, matches should
+        // also return false for files inside that directory
+        GlobMatcher m = new GlobMatcher(List.of("**/*.java"), List.of("foo/**"));
+        assertThat(m.shouldDescend(Path.of("foo"))).isFalse();
+        assertThat(m.matches(Path.of("foo/Bar.java"))).isFalse();
+    }
+
+    @Test
+    void deeplyNestedExcludeConsistentWithFileMatching() {
+        GlobMatcher m = new GlobMatcher(List.of("**/*.java"), List.of("**/foo/**"));
+        assertThat(m.shouldDescend(Path.of("src/main/foo"))).isFalse();
+        assertThat(m.matches(Path.of("src/main/foo/Bar.java"))).isFalse();
+    }
+
+    @Test
+    void excludeWithExactDirNameDoesNotAffectSimilarNames() {
+        // "foo/**" should not exclude "foobar/" or "barfoo/"
+        GlobMatcher m = new GlobMatcher(List.of("**/*.java"), List.of("foo/**"));
+        assertThat(m.shouldDescend(Path.of("foobar"))).isTrue();
+        assertThat(m.shouldDescend(Path.of("barfoo"))).isTrue();
+    }
+
+    @Test
+    void multipleExcludePatternsBothApply() {
+        GlobMatcher m = new GlobMatcher(
+                List.of("**/*.java"),
+                List.of("foo/**", "**/bar/**"));
+        assertThat(m.shouldDescend(Path.of("foo"))).isFalse();
+        assertThat(m.shouldDescend(Path.of("src/bar"))).isFalse();
+        assertThat(m.shouldDescend(Path.of("src/main"))).isTrue();
+    }
+
+    @Test
+    void defaultExcludesAreConsistentBetweenDescendAndMatch() {
+        // Every default-excluded dir should be pruned by shouldDescend
+        // AND have its files excluded by matches() — verify they agree
+        GlobMatcher m = new GlobMatcher(List.of("**/*.java"), List.of());
+        for (String excluded : List.of("build", ".git", ".gradle", ".idea",
+                "out", "target", "node_modules")) {
+            assertThat(m.shouldDescend(Path.of(excluded)))
+                    .as("shouldDescend(\"%s\") should be false", excluded)
+                    .isFalse();
+            assertThat(m.matches(Path.of(excluded + "/Foo.java")))
+                    .as("matches(\"%s/Foo.java\") should be false", excluded)
+                    .isFalse();
+        }
+    }
 }

@@ -41,8 +41,9 @@ import java.util.concurrent.Callable;
         footer = {
                 "",
                 "Examples:",
-                "  # Local repo",
+                "  # Local repo — these two are equivalent due to implicit **/ prefix:",
                 "  md-inator /path/to/repo --include '**/*.java'",
+                "  md-inator /path/to/repo --include '*.java'",
                 "",
                 "  # Remote GitHub repo (full URL)",
                 "  md-inator https://github.com/owner/repo --include '**/*.java'",
@@ -82,12 +83,28 @@ public class MdinatorCli implements Callable<Integer> {
 
     @Option(
             names = {"-i", "--include"},
-            description = "Glob pattern(s) for files to include (e.g. '**/*.java'). Repeatable.",
+            description = {
+                    "Glob pattern(s) for files to include. Repeatable.",
+                    "Patterns are matched against the file's path relative to the repo root.",
+                    "A leading '**/' is added implicitly, so '*.java' and '**/*.java' are equivalent.",
+                    "Examples: '**/*.java', 'src/**/*.kt', '*.gradle'"
+            },
             required = true
     )
     private List<String> includePatterns = new ArrayList<>();
 
-    @Option(names = {"-e", "--exclude"}, description = "Glob pattern(s) to exclude. Repeatable.")
+    @Option(
+            names = {"-e", "--exclude"},
+            description = {
+                    "Glob pattern(s) to exclude. Repeatable. Takes priority over --include.",
+                    "Patterns are matched against the file's path relative to the repo root.",
+                    "A leading '**/' is added implicitly, so 'test/**' and '**/test/**' are equivalent.",
+                    "Examples: '**/test/**', '**/generated/**', '**/*.min.js'",
+                    "Note: the following are always excluded regardless of --exclude:",
+                    "  .git/**, .gradle/**, .idea/**, .vscode/**, build/**, out/**,",
+                    "  target/**, .mvn/**, node_modules/**, **/.DS_Store, **/Thumbs.db"
+            }
+    )
     private List<String> excludePatterns = new ArrayList<>();
 
     @Option(names = {"-o", "--output"}, description = "Output .md file path.")
@@ -114,7 +131,19 @@ public class MdinatorCli implements Callable<Integer> {
     @Option(names = {"--max-file-kb"}, description = "Skip files larger than this KB. Default: 500.")
     private int maxFileSizeKb = 500;
 
-    @Option(names = {"--strip-comments"}, description = "Strip // and /* */ comments from source files.")
+    @Option(
+            names = {"--strip-comments"},
+            description = {
+                    "Strip // and /* */ comments from supported source files.",
+                    "Supported: java, kotlin, groovy, scala, javascript, typescript,",
+                    "  tsx, jsx, c, cpp, csharp, swift, go, rust, php, fsharp.",
+                    "Not supported (returned unchanged): python, yaml, toml, bash, ruby.",
+                    "Caveats: the stripper uses a lightweight state machine and may",
+                    "  incorrectly remove comment-like sequences inside regex literals",
+                    "  (JavaScript/TypeScript) or template strings. Verify output when",
+                    "  stripping is enabled for JS/TS files."
+            }
+    )
     private boolean stripComments = false;
 
     @Option(names = {"--verbose", "-v"}, description = "Print each included/excluded file to stderr.")

@@ -9,7 +9,7 @@
     <!-- ─── Coordinates ──────────────────────────────────────────────────── -->
     <groupId>com.mdinator</groupId>
     <artifactId>md-inator</artifactId>
-    <version>1.0.0</version>
+    <version>1.2.0</version>
     <packaging>jar</packaging>
 
     <name>md-inator</name>
@@ -55,6 +55,12 @@
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
             <version>${guava.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.18.6</version>
         </dependency>
 
         <!-- Logging facade -->
@@ -137,7 +143,7 @@
                     <classifier>thin</classifier>
                     <archive>
                         <manifest>
-                            <mainClass>gottshc.mdinator.cli.MdinatorCli</mainClass>
+                            <mainClass>gottsch.mdinator.cli.MdinatorCli</mainClass>
                             <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
                         </manifest>
                     </archive>

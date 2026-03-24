@@ -2,13 +2,17 @@ package gottsch.mdinator.output;
 
 import gottsch.mdinator.model.ProcessingConfig;
 import gottsch.mdinator.model.SourceFile;
+import gottsch.mdinator.util.TokenEstimator;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.Writer;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Renders a list of source files into a single Markdown document.
@@ -24,40 +28,56 @@ import java.util.List;
 public final class MarkdownWriter {
 
     private static final DateTimeFormatter TS_FMT =
-        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z");
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z");
 
     private final ProcessingConfig config;
-    private final String dirContext;   // null in single-file mode
+    private final String dirContext;
 
-    /** Single-file mode constructor. */
     public MarkdownWriter(ProcessingConfig config) {
         this(config, null);
     }
 
-    /** Split mode constructor. */
     public MarkdownWriter(ProcessingConfig config, String dirContext) {
         this.config     = config;
         this.dirContext = dirContext;
     }
 
     public void write(Writer writer, List<SourceFile> files, String tree) throws IOException {
+        // Build anchor assignments once — shared by TOC and file sections
+        Map<String, String> anchorMap = buildAnchorMap(files);
+
         try (BufferedWriter bw = new BufferedWriter(writer)) {
             writeHeader(bw, files);
-            if (config.isIncludeToc())  writeToc(bw, files);
+            if (config.isIncludeToc())  writeToc(bw, files, anchorMap);
             if (config.isIncludeTree()) writeTree(bw, tree);
-            writeFiles(bw, files);
+            writeFiles(bw, files, anchorMap);
             writeFooter(bw, files);
         }
     }
 
-    // -------------------------------------------------------------------------
+    /**
+     * Assigns a unique anchor to every file up front. Both writeToc() and
+     * writeFiles() look up from this map so they always agree.
+     */
+    private static Map<String, String> buildAnchorMap(List<SourceFile> files) {
+        Map<String, String> anchorMap    = new LinkedHashMap<>();
+        Map<String, Integer> seenCounts  = new HashMap<>();
+
+        for (SourceFile f : files) {
+            String base  = toAnchor(f.getRelativePathString());
+            int    count = seenCounts.merge(base, 1, Integer::sum);
+            anchorMap.put(f.getRelativePathString(), count == 1 ? base : base + "-" + count);
+        }
+        return anchorMap;
+    }
+
+    // ── Header ───────────────────────────────────────────────────────────────
 
     private void writeHeader(BufferedWriter w, List<SourceFile> files) throws IOException {
         String repoName = config.getRepoPath().getFileName() != null
-            ? config.getRepoPath().getFileName().toString()
-            : config.getRepoPath().toString();
+                ? config.getRepoPath().getFileName().toString()
+                : config.getRepoPath().toString();
 
-        // Title differs between single-file and split mode
         if (dirContext != null && !dirContext.isEmpty()) {
             w.write("# Repository Context: `" + repoName + "` — `" + dirContext + "`\n\n");
         } else {
@@ -81,14 +101,19 @@ public final class MarkdownWriter {
         w.write("\n---\n\n");
     }
 
-    private void writeToc(BufferedWriter w, List<SourceFile> files) throws IOException {
+    // ── TOC ──────────────────────────────────────────────────────────────────
+
+    private void writeToc(BufferedWriter w, List<SourceFile> files,
+                          Map<String, String> anchorMap) throws IOException {
         w.write("## Table of Contents\n\n");
         for (SourceFile f : files) {
-            String anchor = toAnchor(f.getRelativePathString());
+            String anchor = anchorMap.get(f.getRelativePathString());
             w.write("- [`" + f.getRelativePathString() + "`](#" + anchor + ")\n");
         }
         w.write("\n---\n\n");
     }
+
+    // ── Tree ─────────────────────────────────────────────────────────────────
 
     private void writeTree(BufferedWriter w, String tree) throws IOException {
         w.write("## Repository Structure\n\n");
@@ -96,44 +121,64 @@ public final class MarkdownWriter {
         w.write("\n---\n\n");
     }
 
-    private void writeFiles(BufferedWriter w, List<SourceFile> files) throws IOException {
+    // ── Files ─────────────────────────────────────────────────────────────────
+
+    private void writeFiles(BufferedWriter w, List<SourceFile> files,
+                            Map<String, String> anchorMap) throws IOException {
         w.write("## Source Files\n\n");
         for (SourceFile f : files) {
-            writeFile(w, f);
+            writeFile(w, f, anchorMap.get(f.getRelativePathString()));
         }
     }
 
-    private void writeFile(BufferedWriter w, SourceFile f) throws IOException {
-        String anchor = toAnchor(f.getRelativePathString());
+    private void writeFile(BufferedWriter w, SourceFile f, String anchor) throws IOException {
         w.write("### <a id=\"" + anchor + "\"></a>`" + f.getRelativePathString() + "`\n\n");
         w.write(String.format(
-            "> **Language:** %s · **Size:** %.1f KB%n%n",
-            f.getLanguage().isEmpty() ? "text" : f.getLanguage(),
-            f.getSizeBytes() / 1024.0
+                "> **Language:** %s · **Size:** %.1f KB%n%n",
+                f.getLanguage().isEmpty() ? "text" : f.getLanguage(),
+                f.getSizeBytes() / 1024.0
         ));
-        String lang = f.getLanguage();
-        w.write("```" + lang + "\n");
+        w.write("```" + f.getLanguage() + "\n");
         w.write(ensureTrailingNewline(f.getContent()));
         w.write("```\n\n");
         w.write("---\n\n");
     }
 
+    // ── Footer ────────────────────────────────────────────────────────────────
+
     private void writeFooter(BufferedWriter w, List<SourceFile> files) throws IOException {
         long totalBytes = files.stream().mapToLong(SourceFile::getSizeBytes).sum();
         w.write("<!-- md-inator: " + files.size() + " files, "
-            + String.format("%.1f", totalBytes / 1024.0) + " KB total -->\n");
+                + String.format("%.1f", totalBytes / 1024.0) + " KB total -->\n");
     }
 
-    // -------------------------------------------------------------------------
+    // ── Anchor helpers ────────────────────────────────────────────────────────
 
     /**
-     * Converts a relative path string to a GitHub-compatible anchor id.
-     * e.g. {@code src/main/App.java} → {@code src-main-app-java}
+     * Converts a relative file path to a lowercase hyphen-separated anchor slug.
+     * e.g. "src/main/App.java" → "src-main-app-java"
      */
     public static String toAnchor(String relPath) {
         return relPath.toLowerCase()
-            .replaceAll("[^a-z0-9]+", "-")
-            .replaceAll("^-|-$", "");
+                .replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("^-|-$", "");
+    }
+
+    /**
+     * Estimates the token cost of rendering a single SourceFile as it would
+     * appear in the final Markdown output (heading, meta line, code fence,
+     * separator). Used by ChunkProcessor to make accurate chunk boundaries
+     * without a full render pass.
+     */
+    public static long estimateRenderedTokens(SourceFile f) {
+        long chars = 0;
+        chars += 10 + f.getRelativePathString().length() * 2; // anchor + heading
+        chars += 40;                                           // meta line
+        chars += 8;                                            // fence open
+        chars += f.getContent().length();                      // content
+        chars += 5;                                            // fence close
+        chars += 5;                                            // separator
+        return TokenEstimator.estimateFromBytes(chars);
     }
 
     private static String ensureTrailingNewline(String s) {

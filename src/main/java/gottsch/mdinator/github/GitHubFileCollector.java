@@ -1,5 +1,8 @@
 package gottsch.mdinator.github;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import gottsch.mdinator.model.ProcessingConfig;
 import gottsch.mdinator.model.SourceFile;
 import gottsch.mdinator.util.CommentStripper;
@@ -11,8 +14,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Collects files from a public GitHub repository via the GitHub REST API.
@@ -36,14 +37,8 @@ import java.util.regex.Pattern;
  */
 public final class GitHubFileCollector {
 
-    // Minimal JSON parsing — avoids adding a JSON library dependency.
-    // GitHub tree responses are well-structured enough for regex extraction.
-    private static final Pattern TREE_ENTRY = Pattern.compile(
-            "\"path\"\\s*:\\s*\"([^\"]+)\"[^}]*\"type\"\\s*:\\s*\"([^\"]+)\"[^}]*\"size\"\\s*:\\s*(\\d+)"
-    );
-    private static final Pattern TRUNCATED = Pattern.compile(
-            "\"truncated\"\\s*:\\s*(true|false)"
-    );
+    private static final ObjectMapper MAPPER = new ObjectMapper()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     private final GitHubSource source;
     private final ProcessingConfig config;
@@ -53,40 +48,39 @@ public final class GitHubFileCollector {
 
     public GitHubFileCollector(GitHubSource source, ProcessingConfig config,
                                GitHubApiClient client) {
-        this.source  = source;
-        this.config  = config;
-        this.client  = client;
+        this.source = source;
+        this.config = config;
+        this.client = client;
     }
 
     public List<SourceFile> collect() throws IOException {
-        // 1. Fetch the full tree
         String branch = source.getBranchOrDefault();
         if (config.isVerbose()) {
             System.err.println("[github] fetching tree: " + source.getLabel());
         }
-        String treeJson = client.getTree(source.getOwner(), source.getRepo(), branch);
 
-        // 2. Check for truncation (very large mono-repos)
-        Matcher truncMatcher = TRUNCATED.matcher(treeJson);
-        if (truncMatcher.find() && "true".equals(truncMatcher.group(1))) {
+        String treeJson = client.getTree(source.getOwner(), source.getRepo(), branch);
+        JsonNode root = MAPPER.readTree(treeJson);
+
+        // Check for truncated response
+        if (root.path("truncated").asBoolean(false)) {
             System.err.println("[WARN] GitHub returned a truncated tree — "
                     + "some files may be missing. Consider narrowing your --include patterns.");
         }
 
-        // 3. Parse entries and apply glob filter
         GlobMatcher globMatcher = new GlobMatcher(
                 config.getIncludePatterns(), config.getExcludePatterns());
 
         long maxBytes = (long) config.getMaxFileSizeKb() * 1024L;
         List<TreeEntry> matched = new ArrayList<>();
 
-        Matcher m = TREE_ENTRY.matcher(treeJson);
-        while (m.find()) {
-            String entryPath = m.group(1);
-            String type      = m.group(2);
-            long   size      = Long.parseLong(m.group(3));
+        for (JsonNode item : root.path("tree")) {
+            String entryPath = item.path("path").asText();
+            String type      = item.path("type").asText();
+            long   size      = item.path("size").asLong(0);
+            String sha       = item.path("sha").asText();
 
-            if (!"blob".equals(type)) continue;  // skip trees/dirs
+            if (!"blob".equals(type)) continue;
 
             Path relativePath = Path.of(entryPath);
 
@@ -103,11 +97,10 @@ public final class GitHubFileCollector {
                 continue;
             }
 
-            matched.add(new TreeEntry(entryPath, size));
+            matched.add(new TreeEntry(entryPath, size, sha));
             if (config.isVerbose()) System.err.println("[include  ] " + entryPath);
         }
 
-        // 4. Warn if approaching unauthenticated rate limit
         if (matched.size() > 50) {
             System.err.printf(
                     "[WARN] Fetching %d files. Unauthenticated GitHub API allows 60 requests/hour "
@@ -115,24 +108,21 @@ public final class GitHubFileCollector {
                     matched.size());
         }
 
-        // 5. Fetch content for each matched file
         List<SourceFile> results = new ArrayList<>();
         for (TreeEntry entry : matched) {
             if (config.isVerbose()) {
                 System.err.println("[fetch    ] " + entry.path);
             }
             try {
-                String raw = client.getFileContent(
-                        source.getOwner(), source.getRepo(), entry.path, branch);
+                String raw = client.getBlob(
+                        source.getOwner(), source.getRepo(), entry.sha);
 
-                Path relPath  = Path.of(entry.path);
-                String lang   = LanguageDetector.detect(relPath);
+                Path relPath   = Path.of(entry.path);
+                String lang    = LanguageDetector.detect(relPath);
                 String content = config.isStripComments()
                         ? CommentStripper.strip(raw, lang)
                         : raw;
 
-                // Use a synthetic absolute path for the SourceFile since
-                // there is no real local path — callers use getRelativePathString()
                 results.add(new SourceFile(
                         Path.of("/github/" + source.getOwner() + "/" + source.getRepo())
                                 .resolve(entry.path),
@@ -153,7 +143,5 @@ public final class GitHubFileCollector {
 
     public int getExcludedCount() { return excludedCount; }
 
-    // -------------------------------------------------------------------------
-
-    private record TreeEntry(String path, long size) {}
+    private record TreeEntry(String path, long size, String sha) {}
 }

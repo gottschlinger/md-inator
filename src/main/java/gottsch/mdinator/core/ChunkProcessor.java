@@ -42,8 +42,8 @@ import java.util.List;
  */
 public final class ChunkProcessor {
 
-    // Approximate overhead per chunk: header + ToC + tree markdown
-    private static final long CHUNK_OVERHEAD_TOKENS = 500L;
+    // Header + TOC + tree overhead per chunk (in tokens)
+    private static final long CHUNK_OVERHEAD_TOKENS = 1_000L;
 
     private final ProcessingConfig config;
     private final long chunkTokenBudget;
@@ -134,21 +134,20 @@ public final class ChunkProcessor {
      * a warning printed to stderr.
      */
     private List<List<SourceFile>> partition(List<SourceFile> files) {
-        List<List<SourceFile>> chunks   = new ArrayList<>();
-        List<SourceFile>       current  = new ArrayList<>();
-        long                   running  = CHUNK_OVERHEAD_TOKENS;
+        List<List<SourceFile>> chunks  = new ArrayList<>();
+        List<SourceFile>       current = new ArrayList<>();
+        long                   running = CHUNK_OVERHEAD_TOKENS;
 
         for (SourceFile f : files) {
-            long fileTokens = TokenEstimator.estimate(f.getContent());
+            // Use rendered estimate instead of raw source estimate
+            long fileTokens = MarkdownWriter.estimateRenderedTokens(f);
 
-            // File alone exceeds budget — warn and place in its own chunk
             if (fileTokens > chunkTokenBudget) {
                 System.err.printf(
                         "[WARN] %s (~%,d tokens) exceeds chunk budget (%,d). "
                                 + "Placing in its own chunk.%n",
                         f.getRelativePathString(), fileTokens, chunkTokenBudget);
 
-                // Flush current chunk first if non-empty
                 if (!current.isEmpty()) {
                     chunks.add(current);
                     current = new ArrayList<>();
@@ -158,7 +157,6 @@ public final class ChunkProcessor {
                 continue;
             }
 
-            // Adding this file would exceed the budget — start a new chunk
             if (running + fileTokens > chunkTokenBudget && !current.isEmpty()) {
                 chunks.add(current);
                 current = new ArrayList<>();

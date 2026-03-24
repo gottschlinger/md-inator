@@ -55,14 +55,14 @@ class ChunkProcessorTest {
 
     @Test
     void splitsIntoMultipleChunksWhenOverBudget() throws IOException {
-        // Each file is ~500 tokens, budget is 600 → each file gets its own chunk
-        String content = repeat("x", 500 * 4); // ~500 tokens at 3.7 chars/token ~1850 chars
+        // Each file renders to ~600+ tokens including fences/headings,
+        // so a 500-token budget forces one file per chunk
+        String content = repeat("x", 500 * 4);
         write("src/A.java", content);
         write("src/B.java", content);
         write("src/C.java", content);
 
         ProcessingResult result = new ChunkProcessor(config(600), 600).process();
-
         assertThat(result.getOutputFiles().size()).isGreaterThan(1);
     }
 
